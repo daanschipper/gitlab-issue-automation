@@ -59,6 +59,12 @@ func GetGroupWikiId() string {
 	return GetEnvVariable(&envVariableParameters{Name: "GROUP_WIKI_ID", Optional: true})
 }
 
+func GetScheduledPipelineDescription() string {
+	return GetEnvVariable(&envVariableParameters{
+		Name: "RECURRING_TASKS_SCHEDULED_PIPELINE_DESCRIPTION",
+	})
+}
+
 func GetForceStandupNotesForToday() bool {
 	variable := GetEnvVariable(&envVariableParameters{Name: "FORCE_STANDUP_NOTES_FOR_TODAY", Optional: true})
 	return variable == "TRUE"
@@ -93,31 +99,68 @@ func GetRecurringIssuesPath() string {
 
 func GetLastRunTime() time.Time {
 	git := GetGitClient()
-	lastRunTime := time.Unix(0, 0)
-	options := &gitlab.ListProjectPipelinesOptions{
-		Scope:   gitlab.Ptr("finished"),
-		Status:  gitlab.Ptr(gitlab.Success),
-		OrderBy: gitlab.Ptr("updated_at"),
-	}
 	ciProjectID := GetCiProjectId()
 	ciJobName := GetCiJobName()
-	pipelineInfos, _, err := git.Pipelines.ListProjectPipelines(ciProjectID, options)
-	if err != nil {
-		log.Fatal(err)
+	ciScheduledPipelineDescription := GetScheduledPipelineDescription()
+
+	// find pipeline schedule, with pagination
+	listPipelineSchedulesOptions := &gitlab.ListPipelineSchedulesOptions{
+		Page: 1, PerPage: 10,
 	}
-	for _, pipelineInfo := range pipelineInfos {
-		jobs, _, err := git.Jobs.ListPipelineJobs(ciProjectID, pipelineInfo.ID, nil)
+
+	for {
+		pipelineSchedules, listPipelineSchedulesResponse, err := git.PipelineSchedules.ListPipelineSchedules(ciProjectID, listPipelineSchedulesOptions)
 		if err != nil {
 			log.Fatal(err)
 		}
-		for _, job := range jobs {
-			if job.Name == ciJobName {
-				lastRunTime = *job.FinishedAt
-				return lastRunTime
+
+		for _, pipelineSchedule := range pipelineSchedules {
+			if pipelineSchedule.Description == ciScheduledPipelineDescription {
+
+				// when scheduled pipeline with same description found, find latest successful pipeline, with pagination
+				pipelinesTriggeredByScheduleOptions := gitlab.ListPipelinesTriggeredByScheduleOptions{
+					Page: 1, PerPage: 10,
+				}
+
+				for {
+					// default order is by id
+					pipelines, pipelinesTriggeredByScheduleResponse, err := git.PipelineSchedules.ListPipelinesTriggeredBySchedule(ciProjectID, pipelineSchedule.ID, &pipelinesTriggeredByScheduleOptions)
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					for _, pipeline := range pipelines {
+						if pipeline.Status == "success" {
+
+							// Get the finished time of the actual job of the gitlab issue automation.
+							// This was how it was before, could be made simpler by returning pipeline.FinishedAt.
+							jobs, _, err := git.Jobs.ListPipelineJobs(ciProjectID, pipeline.ID, nil)
+							if err != nil {
+								log.Fatal(err)
+							}
+							for _, job := range jobs {
+								if job.Name == ciJobName {
+									return *job.FinishedAt
+								}
+							}
+						}
+					}
+
+					if pipelinesTriggeredByScheduleResponse.NextPage == 0 {
+						break
+					}
+					pipelinesTriggeredByScheduleOptions.Page = pipelinesTriggeredByScheduleResponse.NextPage
+				}
 			}
 		}
+
+		if listPipelineSchedulesResponse.NextPage == 0 {
+			break
+		}
+		listPipelineSchedulesOptions.Page = listPipelineSchedulesResponse.NextPage
 	}
-	return lastRunTime
+
+	return time.Unix(0, 0)
 }
 
 func GetSortedProjectIssues(orderBy string, sortOrder string, issueState string) []*gitlab.Issue {
