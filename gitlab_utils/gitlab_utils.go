@@ -28,7 +28,7 @@ func GetEnvVariable(parameters *envVariableParameters) string {
 		if parameters.ErrorMessageOverwrite != "" {
 			errorMessage = parameters.ErrorMessageOverwrite
 		}
-		log.Fatal("Environment variable", envVariable, "not found.", errorMessage)
+		log.Fatalf("Environment variable '%s' not found. %s", parameters.Name, errorMessage)
 	}
 	return envVariable
 }
