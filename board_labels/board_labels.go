@@ -56,8 +56,9 @@ func adaptLabel(issue *gitlab.Issue, label string, updatedLabels gitlab.Labels, 
 	issueName := "'" + issue.Title + "'"
 	labelName := "'" + label + "'"
 	log.Println("-", action, "label", labelName, preposition, "issue", issueName)
+	labelOptions := gitlab.LabelOptions(updatedLabels)
 	options := &gitlab.UpdateIssueOptions{
-		Labels: updatedLabels,
+		Labels: &labelOptions,
 	}
 	return gitlabUtils.UpdateIssue(issue.IID, options)
 }

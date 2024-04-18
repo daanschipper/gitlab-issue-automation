@@ -6,10 +6,9 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"time"
 
-	constants "gitlab-issue-automation/constants"
+	"gitlab-issue-automation/constants"
 	types "gitlab-issue-automation/types"
 
 	"github.com/xanzy/go-gitlab"
@@ -96,9 +95,9 @@ func GetLastRunTime() time.Time {
 	git := GetGitClient()
 	lastRunTime := time.Unix(0, 0)
 	options := &gitlab.ListProjectPipelinesOptions{
-		Scope:   gitlab.String("finished"),
-		Status:  gitlab.BuildState(gitlab.Success),
-		OrderBy: gitlab.String("updated_at"),
+		Scope:   gitlab.Ptr("finished"),
+		Status:  gitlab.Ptr(gitlab.Success),
+		OrderBy: gitlab.Ptr("updated_at"),
 	}
 	ciProjectID := GetCiProjectId()
 	ciJobName := GetCiJobName()
@@ -169,12 +168,15 @@ func GetIssueDueDate(data *types.Metadata) time.Time {
 func CreateIssue(data *types.Metadata) error {
 	git := GetGitClient()
 	project := GetGitProject()
+
+	labelOptions := gitlab.LabelOptions(append(data.Labels, "🔁 Recurring"))
+
 	options := &gitlab.CreateIssueOptions{
-		Title:        gitlab.String(data.Title),
-		Description:  gitlab.String(data.Description),
+		Title:        gitlab.Ptr(data.Title),
+		Description:  gitlab.Ptr(data.Description),
 		Confidential: &data.Confidential,
 		CreatedAt:    &data.NextTime,
-		Labels:       gitlab.Labels{strings.Join(append(data.Labels, "🔁 Recurring"), ",")},
+		Labels:       &labelOptions,
 	}
 	if data.DueIn != "" {
 		dueDate := gitlab.ISOTime(GetIssueDueDate(data))
@@ -203,9 +205,9 @@ func WikiPageExists(title string) bool {
 	var err error
 	if groupWikiId == "" {
 		project := GetGitProject()
-		_, _, err = git.Wikis.GetWikiPage(project.ID, title)
+		_, _, err = git.Wikis.GetWikiPage(project.ID, title, &gitlab.GetWikiPageOptions{})
 	} else {
-		_, _, err = git.GroupWikis.GetGroupWikiPage(groupWikiId, title)
+		_, _, err = git.GroupWikis.GetGroupWikiPage(groupWikiId, title, &gitlab.GetGroupWikiPageOptions{})
 	}
 	return err == nil
 }
@@ -213,7 +215,7 @@ func WikiPageExists(title string) bool {
 func GetWikiPagesMetadata() []types.WikiMetadata {
 	git := GetGitClient()
 	groupWikiId := GetGroupWikiId()
-	wikiMetadata := []types.WikiMetadata{}
+	var wikiMetadata []types.WikiMetadata
 	if groupWikiId == "" {
 		project := GetGitProject()
 		options := &gitlab.ListWikisOptions{}
