@@ -51,10 +51,6 @@ func GetCiProjectDir() string {
 	return GetEnvVariable(&envVariableParameters{Name: "CI_PROJECT_DIR"})
 }
 
-func GetCiJobName() string {
-	return GetEnvVariable(&envVariableParameters{Name: "CI_JOB_NAME"})
-}
-
 func GetGroupWikiId() string {
 	return GetEnvVariable(&envVariableParameters{Name: "GROUP_WIKI_ID", Optional: true})
 }
@@ -114,14 +110,14 @@ func GetLastRunTime() time.Time {
 		log.Fatal(err)
 	}
 
-	// When scheduled pipeline with same description found, find latest successful pipeline, with pagination.
+	// Find latest successful pipeline, with pagination.
+	// Sort descending to get the latest pipelines first.
 	// Cannot use schedule.LastPipeline as the status can be failed.
 	pipelinesTriggeredByScheduleOptions := gitlab.ListPipelinesTriggeredByScheduleOptions{
-		Page: 1, PerPage: 10,
+		Page: 1, PerPage: 10, Sort: "desc",
 	}
 
 	for {
-		// default order is by id
 		pipelines, pipelinesTriggeredByScheduleResponse, err := git.PipelineSchedules.ListPipelinesTriggeredBySchedule(ciProjectID, schedule.ID, &pipelinesTriggeredByScheduleOptions)
 		if err != nil {
 			log.Fatal(err)
