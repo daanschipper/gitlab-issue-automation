@@ -2,14 +2,14 @@ package gitlabUtils
 
 import (
 	"crypto/tls"
+	"gitlab-issue-automation/constants"
+	types "gitlab-issue-automation/types"
 	"log"
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"time"
-
-	"gitlab-issue-automation/constants"
-	types "gitlab-issue-automation/types"
 
 	"github.com/xanzy/go-gitlab"
 )
@@ -59,10 +59,17 @@ func GetGroupWikiId() string {
 	return GetEnvVariable(&envVariableParameters{Name: "GROUP_WIKI_ID", Optional: true})
 }
 
-func GetScheduledPipelineDescription() string {
-	return GetEnvVariable(&envVariableParameters{
-		Name: "RECURRING_TASKS_SCHEDULED_PIPELINE_DESCRIPTION",
+func GetScheduledPipelineId() int {
+	pipelineId := GetEnvVariable(&envVariableParameters{
+		Name: "RECURRING_TASKS_SCHEDULED_PIPELINE_ID",
 	})
+
+	atoi, err := strconv.Atoi(pipelineId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return atoi
 }
 
 func GetForceStandupNotesForToday() bool {
@@ -100,66 +107,39 @@ func GetRecurringIssuesPath() string {
 func GetLastRunTime() time.Time {
 	git := GetGitClient()
 	ciProjectID := GetCiProjectId()
-	ciJobName := GetCiJobName()
-	ciScheduledPipelineDescription := GetScheduledPipelineDescription()
+	ciScheduledPipelineId := GetScheduledPipelineId()
 
-	// find pipeline schedule, with pagination
-	listPipelineSchedulesOptions := &gitlab.ListPipelineSchedulesOptions{
+	schedule, _, err := git.PipelineSchedules.GetPipelineSchedule(ciProjectID, ciScheduledPipelineId)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// When scheduled pipeline with same description found, find latest successful pipeline, with pagination.
+	// Cannot use schedule.LastPipeline as the status can be failed.
+	pipelinesTriggeredByScheduleOptions := gitlab.ListPipelinesTriggeredByScheduleOptions{
 		Page: 1, PerPage: 10,
 	}
 
 	for {
-		pipelineSchedules, listPipelineSchedulesResponse, err := git.PipelineSchedules.ListPipelineSchedules(ciProjectID, listPipelineSchedulesOptions)
+		// default order is by id
+		pipelines, pipelinesTriggeredByScheduleResponse, err := git.PipelineSchedules.ListPipelinesTriggeredBySchedule(ciProjectID, schedule.ID, &pipelinesTriggeredByScheduleOptions)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		for _, pipelineSchedule := range pipelineSchedules {
-			if pipelineSchedule.Description == ciScheduledPipelineDescription {
-
-				// when scheduled pipeline with same description found, find latest successful pipeline, with pagination
-				pipelinesTriggeredByScheduleOptions := gitlab.ListPipelinesTriggeredByScheduleOptions{
-					Page: 1, PerPage: 10,
-				}
-
-				for {
-					// default order is by id
-					pipelines, pipelinesTriggeredByScheduleResponse, err := git.PipelineSchedules.ListPipelinesTriggeredBySchedule(ciProjectID, pipelineSchedule.ID, &pipelinesTriggeredByScheduleOptions)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					for _, pipeline := range pipelines {
-						if pipeline.Status == "success" {
-
-							// Get the finished time of the actual job of the gitlab issue automation.
-							// This was how it was before, could be made simpler by returning pipeline.FinishedAt.
-							jobs, _, err := git.Jobs.ListPipelineJobs(ciProjectID, pipeline.ID, nil)
-							if err != nil {
-								log.Fatal(err)
-							}
-							for _, job := range jobs {
-								if job.Name == ciJobName {
-									return *job.FinishedAt
-								}
-							}
-						}
-					}
-
-					if pipelinesTriggeredByScheduleResponse.NextPage == 0 {
-						break
-					}
-					pipelinesTriggeredByScheduleOptions.Page = pipelinesTriggeredByScheduleResponse.NextPage
-				}
+		for _, pipeline := range pipelines {
+			if pipeline.Status == "success" {
+				return *pipeline.FinishedAt
 			}
 		}
 
-		if listPipelineSchedulesResponse.NextPage == 0 {
+		if pipelinesTriggeredByScheduleResponse.NextPage == 0 {
 			break
 		}
-		listPipelineSchedulesOptions.Page = listPipelineSchedulesResponse.NextPage
+		pipelinesTriggeredByScheduleOptions.Page = pipelinesTriggeredByScheduleResponse.NextPage
 	}
 
+	log.Println("No successful pipeline run found.")
 	return time.Unix(0, 0)
 }
 
