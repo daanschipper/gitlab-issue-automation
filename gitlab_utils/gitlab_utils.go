@@ -129,7 +129,7 @@ func GetLastRunTime() time.Time {
 
 		for _, pipeline := range pipelines {
 			if pipeline.Status == "success" {
-				return *pipeline.FinishedAt
+				return *pipeline.CreatedAt
 			}
 		}
 
