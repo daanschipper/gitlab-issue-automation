@@ -111,11 +111,13 @@ func GetLastRunTime() time.Time {
 	}
 
 	// Find latest successful pipeline, with pagination.
-	// Sort descending to get the latest pipelines first.
+	// Need to loop through all pipelines, only since 17.2 sorting has been introduced https://gitlab.com/gitlab-org/gitlab/-/issues/37246.
 	// Cannot use schedule.LastPipeline as the status can be failed.
 	pipelinesTriggeredByScheduleOptions := gitlab.ListPipelinesTriggeredByScheduleOptions{
 		Page: 1, PerPage: 10, Sort: "desc",
 	}
+
+	lastSuccessfulPipeline := time.Unix(0, 0)
 
 	for {
 		pipelines, pipelinesTriggeredByScheduleResponse, err := git.PipelineSchedules.ListPipelinesTriggeredBySchedule(ciProjectID, schedule.ID, &pipelinesTriggeredByScheduleOptions)
@@ -125,7 +127,7 @@ func GetLastRunTime() time.Time {
 
 		for _, pipeline := range pipelines {
 			if pipeline.Status == "success" {
-				return *pipeline.CreatedAt
+				lastSuccessfulPipeline = *pipeline.CreatedAt
 			}
 		}
 
@@ -135,8 +137,7 @@ func GetLastRunTime() time.Time {
 		pipelinesTriggeredByScheduleOptions.Page = pipelinesTriggeredByScheduleResponse.NextPage
 	}
 
-	log.Println("No successful pipeline run found.")
-	return time.Unix(0, 0)
+	return lastSuccessfulPipeline
 }
 
 func GetSortedProjectIssues(orderBy string, sortOrder string, issueState string) []*gitlab.Issue {
